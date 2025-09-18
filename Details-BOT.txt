@@ -1,0 +1,8 @@
+ACC Polymarket:
+0x24D8E49649F26F3c8596258742051f139F3386A9
+
+--
+call list: 
+https://gamma-api.polymarket.com/events/pagination?limit=100&active=true&archived=false&tag_slug=15M&closed=false&order=volume24hr&ascending=false&offset=0
+
+-> check "startTime" (giờ UTC) so với giờ hiện tại -> là pool start

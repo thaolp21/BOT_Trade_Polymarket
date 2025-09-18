@@ -1,0 +1,20 @@
+BOT
+CÔNG: set lệnh limit ở 2 bên, đặt lệnh mua 10-7-5 tỷ lệ 3-3-4, bên nào chạm trước thì hủy lệnh bên kia, mua xong là xong, limit thời gian là 10' đầu
+THỦ: set lệnh limit ở 2 bên, đặt lệnh mua 25-20-15-10 tỷ lệ 1-2-3-4, bên nào chạm trước thì hủy lệnh bên kia, mua xong đặt lệnh limit bán giá x2, limit thời gian là 10' đầu
+
+--
+Cách làm:
+1. Danh sách các pool trong 1 ngày -> DONE
+2. Tracking được từng pool (id,time..) -> DONE
+3. Làm sao đặt/hủy lệnh limit mua/bán có set thời gian (tính 10' của pool là tg bn -> set limit time)
+https://docs.polymarket.com/developers/CLOB/orders/orders
+https://docs.polymarket.com/api-reference/orderbook/get-order-book-summary
+4. Set code auto hủy lệnh bên còn lại nếu có lệnh được khớp.
+
+*Input:
+1. List pool
+2. Info pool: id, thời gian
+3. biến: 
+static (config): số lệnh, số tiền mua, giá mua/giá bán, số phút/s hủy từ khi đặt lệnh
+dynamic (calculate): thời gian hủy lệnh
+
