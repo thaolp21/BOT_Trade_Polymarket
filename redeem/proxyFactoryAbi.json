@@ -1,0 +1,24 @@
+[
+  {
+    "constant": false,
+    "inputs": [
+      {
+        "components": [
+          { "name": "typeCode", "type": "uint8" },
+          { "name": "to", "type": "address" },
+          { "name": "value", "type": "uint256" },
+          { "name": "data", "type": "bytes" }
+        ],
+        "name": "calls",
+        "type": "tuple[]"
+      }
+    ],
+    "name": "proxy",
+    "outputs": [
+      { "name": "returnValues", "type": "bytes[]" }
+    ],
+    "payable": true,
+    "stateMutability": "payable",
+    "type": "function"
+  }
+]

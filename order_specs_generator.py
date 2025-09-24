@@ -5,25 +5,46 @@ Tạo order_specs tự động cho cả 2 outcome:
 - 10 lệnh mỗi bên, giá 0.01→0.10, size 14→5
 """
 
-def generate_specs():
-    
-    prices = [round(0.01 * i, 2) for i in range(1, 11)]  # 0.01→0.10
-    sizes = [14 - (i - 1) for i in range(1, 11)]         # 14→5
+
+from datetime import timedelta
+from dateutil import parser
+
+# --- CONFIGURABLE PARAMETERS ---
+NUM_ORDERS_PER_SIDE = 1
+PRICE_START = 0.1 # Giá bắt đầu từ 1%
+PRICE_STEP = 0.01 # Giá tăng 1% mỗi lệnh
+SIZE_START = 20 # Size lớn nhất bắt đầu giảm dần
+SIZE_STEP = -1 # Size giảm 1 mỗi lệnh
+SIDE = "buy"         # "buy" or "sell"
+ORDER_TYPE = "GTD"   # "GTC" (hết hạn khi cancelled)  or "GTD" (hết hạn theo thời gian)
+CANCEL_MINUTES = 12
+
+def generate_specs(start_time_str: str):
+    """
+    Generate order specs for both outcomes using module-level config.
+    """
+    start_time = parser.isoparse(start_time_str)
+    cancel_time = start_time + timedelta(minutes=CANCEL_MINUTES)
+    expiration = int(cancel_time.timestamp())  # epoch UTC giây
+
+    prices = [round(PRICE_START + PRICE_STEP * i, 2) for i in range(NUM_ORDERS_PER_SIDE)]
+    sizes = [SIZE_START + SIZE_STEP * i for i in range(NUM_ORDERS_PER_SIDE)]
     specs = []
 
-    for outcome_idx in [0, 1]:  # 0=Up, 1=Down
+    for outcome_idx in [0, 1]:
         for p, s in zip(prices, sizes):
             specs.append({
                 "outcome_index": outcome_idx,
                 "price": p,
                 "size": s,
-                "side": "buy",         # hoặc "sell" nếu muốn đặt lệnh bán
-                "order_type": "GTC",
+                "side": SIDE,
+                "order_type": ORDER_TYPE,
+                "expiration": expiration
             })
     return specs
 
 if __name__ == "__main__":
     # test
-    s = generate_specs()
-    for spec in s:
-        print(spec)
+    test_start = "2025-09-18T07:15:00Z"
+    s = generate_specs(test_start)
+    print("First spec example:", s)
