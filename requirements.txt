@@ -1,0 +1,11 @@
+# Core automation dependencies
+requests>=2.28.0
+openpyxl>=3.1.0
+python-dotenv>=0.19.0
+
+# Trading dependencies (optional - for order placement/management)
+py-clob-client>=0.5.0
+web3>=6.0.0
+
+# Time zone support
+pytz>=2022.1

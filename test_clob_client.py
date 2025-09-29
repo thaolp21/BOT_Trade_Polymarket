@@ -1,21 +1,9 @@
-"""
-Script to test basic functions of py_clob_client.ClobClient for Polymarket CLOB.
-- Connects to the CLOB
-- Gets API credentials
-- Gets account info
-- Gets open orders (if any)
-- Prints results for manual inspection
-"""
-
 import os
 import dotenv
 from py_clob_client.client import ClobClient
 import json
 from py_clob_client.clob_types import TradeParams
 
-with open("data.json", "r") as f:
-    data = json.load(f)
-    print('lenghth', len(data))
 # Load environment variables
 dotenv.load_dotenv()
 
@@ -49,7 +37,7 @@ if __name__ == "__main__":
     #     maker_address=POLYMARKET_PROXY_ADDRESS,
     #     market='0x0c5537e4931c39e0fabdff747f9a702d263bb5e595f094c315fe50192f3b6b76'))
     # print(orders)
-    # client.cancel_all()
+    client.cancel_all()
     orders = client.get_orders()
     print(f"Fetched {len(orders)} open orders:")
     # print("api_keys", client.get_api_keys())

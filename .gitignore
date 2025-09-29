@@ -1,3 +1,88 @@
+# Environment and credentials
 .env
-.idea
-node_modules
+.env.local
+.env.*.local
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Generated files
+export_data/filled_template.xlsx
+export_data/*.xlsx
+!export_data/template.xlsx
+notification/combined_notification_data.json
+notification/last_report.json
+
+# Trading data (keep folders but ignore contents)
+order_ids/*
+!order_ids/.gitkeep
+market_condition_ids/*
+!market_condition_ids/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# PowerShell execution policy files
+*.ps1xml
+
+# Archive folder (optional - contains old/unused files)
+archive/

@@ -10,14 +10,14 @@ from datetime import timedelta
 from dateutil import parser
 
 # --- CONFIGURABLE PARAMETERS ---
-NUM_ORDERS_PER_SIDE = 1
-PRICE_START = 0.1 # Giá bắt đầu từ 1%
-PRICE_STEP = 0.01 # Giá tăng 1% mỗi lệnh
-SIZE_START = 20 # Size lớn nhất bắt đầu giảm dần
-SIZE_STEP = -1 # Size giảm 1 mỗi lệnh
+NUM_ORDERS_PER_SIDE = 5
+PRICE_START = 0.05 # Giá bắt đầu từ 1%
+PRICE_STEP = -0.01 # Giá tăng 1% mỗi lệnh
+SIZE_START = 10 # Size lớn nhất bắt đầu giảm dần
+SIZE_STEP = 0 # Size giảm 1 mỗi lệnh
 SIDE = "buy"         # "buy" or "sell"
 ORDER_TYPE = "GTD"   # "GTC" (hết hạn khi cancelled)  or "GTD" (hết hạn theo thời gian)
-CANCEL_MINUTES = 12
+CANCEL_MINUTES = 8
 
 def generate_specs(start_time_str: str):
     """

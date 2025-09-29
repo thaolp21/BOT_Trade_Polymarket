@@ -1,14 +1,24 @@
 import re
-
 import requests
 import openpyxl
 from datetime import datetime, timezone
-import pytz
+from zoneinfo import ZoneInfo
 import json
 import os
+import sys
 from openpyxl.styles import PatternFill
 from dotenv import load_dotenv
 import time
+import argparse
+from datetime import timedelta
+
+# Ensure project root (parent directory) is on sys.path for 'utils'
+CURRENT_DIR = os.path.dirname(__file__)
+PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from utils.common import r2, to_et_time, to_gmt7_date, to_gmt7_datetime, extract_time_part
 
 load_dotenv()
 
@@ -16,22 +26,56 @@ load_dotenv()
 DATA_API_ACTIVITY_URL = "https://data-api.polymarket.com/activity"
 DATA_API_POSITION_URL = "https://data-api.polymarket.com/positions"
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "template.xlsx")
-OUTPUT_PATH = os.path.join(os.path.dirname(__file__), "filled_template.xlsx")
-MOCK_JSON_PATH = os.path.join(os.path.dirname(__file__), "activities.json")
 POLYMARKET_ADDRESS = os.getenv("POLYMARKET_PROXY_ADDRESS")
-FROM_TIME='1758560407' #23/09/2025 00:00:07 AM
-TO_TIME='1758646807'   
+FROM_TIME='1758727800' # Sep 24, 2025, 10:30:00 PM GMT+7
+TO_TIME='1759251600'   # Oct 1, 2025, 12:00:00 AM GMT+7
+
+# --- Analysis Configuration ---
+# Price range to analyze (from high to low)
+PRICE_RANGE = [5, 4, 3, 2, 1]
+
+# Time frames for analysis (minutes from start)
+TIME_FRAMES = [
+    {'name': '0-4', 'min': 0, 'max': 4},
+    {'name': '4-6', 'min': 4, 'max': 6},
+    {'name': '6-8', 'min': 6, 'max': 8},
+    {'name': '8-12', 'min': 8, 'max': 12}
+]
+
+# Column mapping for Excel Analysis sheet (starting from column 6)
+# Each item maps to properties in price_obj and time_frames/win_time_frames
+ANALYSIS_COLUMNS = [
+    # Time frame columns (pairs: rounds + rate)
+    {'type': 'time_frame', 'frame_index': 0, 'property': 'in_frame_rounds'},      
+    {'type': 'time_frame', 'frame_index': 0, 'property': 'in_frame_rounds_rate'}, 
+    {'type': 'time_frame', 'frame_index': 1, 'property': 'in_frame_rounds'},      
+    {'type': 'time_frame', 'frame_index': 1, 'property': 'in_frame_rounds_rate'}, 
+    {'type': 'time_frame', 'frame_index': 2, 'property': 'in_frame_rounds'},      
+    {'type': 'time_frame', 'frame_index': 2, 'property': 'in_frame_rounds_rate'}, 
+    # Win time frame columns (triplets: rounds + rate + ev)
+    {'type': 'win_time_frame', 'frame_index': 0, 'property': 'win_in_frame_rounds'}, 
+    {'type': 'win_time_frame', 'frame_index': 0, 'property': 'win_rate'},           
+    {'type': 'win_time_frame', 'frame_index': 0, 'property': 'ev_value'},           
+    {'type': 'win_time_frame', 'frame_index': 1, 'property': 'win_in_frame_rounds'}, 
+    {'type': 'win_time_frame', 'frame_index': 1, 'property': 'win_rate'},           
+    {'type': 'win_time_frame', 'frame_index': 1, 'property': 'ev_value'},           
+    {'type': 'win_time_frame', 'frame_index': 2, 'property': 'win_in_frame_rounds'}, 
+    {'type': 'win_time_frame', 'frame_index': 2, 'property': 'win_rate'},
+    {'type': 'win_time_frame', 'frame_index': 2, 'property': 'ev_value'},
+    ]
 limit = 500
 offset = 0 # max 10.000 for api: data-api.polymarket.com/positions / api data-api.polymarket.com/activity max 1.000
 all_activities = []
 #{'id': '0x6926ee8521e1d7528c725dbb023b2e4c05f4b7b2b488cf2a966a9e06d9db7318', 'title': 'Bitcoin Up or Down - September 18, 10:45AM-11:00AM ET', 'is_win': False, 'orders': [{'price': 10, 'time': 1758207034, 'time_to_matched': 5}], 'start_time': 1758206700},
 
 # --- Helper: Convert timestamp to ET (Eastern Time) ---
+def calculate_ev(win_rate, price):
+    price_rr = 100/price if price != 0 else 0
+    ev = win_rate * price_rr - 1
+    return r2(ev)
 
-def to_et_time(ts):
-    utc_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-    et = pytz.timezone('US/Eastern')
-    return utc_dt.astimezone(et).strftime('%Y-%m-%d %I:%M %p')
+
+
 # --- Analysis data ---
 def get_analysis_data(grouped_data, from_time, to_time):
     from_time = int(from_time)
@@ -40,12 +84,12 @@ def get_analysis_data(grouped_data, from_time, to_time):
     total_hours = (to_time - from_time) / 3600
     total_orders = int(total_hours * 4)
     total_trades = len(grouped_data)
-    trade_order_rate = total_trades / total_orders if total_orders else 0
+    trade_order_rate = r2(total_trades / total_orders) if total_orders else 0
     win_rounds = [g for g in grouped_data if g.get('is_win')]
     total_win_rounds = len(win_rounds)
-    win_trade_rate = total_win_rounds / total_trades if total_trades else 0
+    win_trade_rate = r2(total_win_rounds / total_trades) if total_trades else 0
     analysis_prices = []
-    for price in range(10, 0, -1):
+    for price in PRICE_RANGE:
         rounds_with_price = []
         for round_obj in grouped_data:
             # Check if any order in this round has this price
@@ -57,25 +101,56 @@ def get_analysis_data(grouped_data, from_time, to_time):
                         'time_to_matched': order.get('time_to_matched')
                     })
                     break
+        
         matched_rounds = len(rounds_with_price)
-        matched_rate = matched_rounds / total_trades if total_trades else 0
-        win_rounds = [r for r in rounds_with_price if r['is_win']]
-        win_rate = len(win_rounds) / matched_rounds if matched_rounds else 0
-        # Time frames
-        tf_0_4 = [r for r in rounds_with_price if r['time_to_matched'] is not None and r['time_to_matched'] < 4]
-        tf_4_8 = [r for r in rounds_with_price if r['time_to_matched'] is not None and 4 <= r['time_to_matched'] < 8]
-        tf_8_12 = [r for r in rounds_with_price if r['time_to_matched'] is not None and r['time_to_matched'] >= 8]
+        matched_rate = r2(matched_rounds / total_trades) if total_trades else 0
+        price_win_rounds = [r for r in rounds_with_price if r['is_win']]
+        win_rate = r2(len(price_win_rounds) / matched_rounds) if matched_rounds else 0
+        
+        # Dynamic time frames
+        time_frame_data = []
+        win_time_frame_data = []
+        
+        for tf_config in TIME_FRAMES:
+            tf_min, tf_max = tf_config['min'], tf_config['max']
+            tf_name = tf_config['name']
+            
+            # Filter rounds by time frame
+            tf_rounds = [r for r in rounds_with_price 
+                        if r['time_to_matched'] is not None and tf_min <= r['time_to_matched'] < tf_max]
+            win_tf_rounds = [r for r in price_win_rounds 
+                           if r['time_to_matched'] is not None and tf_min <= r['time_to_matched'] < tf_max]
+            
+            # Time frame stats
+            time_frame_data.append({
+                'frame': tf_name,
+                'in_frame_rounds': len(tf_rounds),
+                'in_frame_rounds_rate': r2(len(tf_rounds)/matched_rounds) if matched_rounds else 0
+            })
+            
+            # Win time frame stats
+            tf_win_rate = r2(len(win_tf_rounds)/len(tf_rounds)) if len(tf_rounds) else 0
+            tf_ev = calculate_ev(tf_win_rate, price)
+            
+            win_time_frame_data.append({
+                'frame': tf_name,
+                'win_in_frame_rounds': len(win_tf_rounds),
+                'win_rate': tf_win_rate,
+                'ev_value': tf_ev
+            })
+        
+        # Overall price EV
+        ev = calculate_ev(win_rate, price)
+
         analysis_prices.append({
             'price': price,
             'matched_rounds': matched_rounds,
             'matched_rate': matched_rate,
-            'win_rounds': len(win_rounds),
+            'win_rounds': len(price_win_rounds),
             'win_rate': win_rate,
-            'time_frames': [
-                {'frame': '0-4', 'in_frame_rounds': len(tf_0_4)},
-                {'frame': '4-8', 'in_frame_rounds': len(tf_4_8)},
-                {'frame': '8-12', 'in_frame_rounds': len(tf_8_12)}
-            ]
+            'ev_value': r2(ev),
+            'time_frames': time_frame_data,
+            'win_time_frames': win_time_frame_data
         })
     return {
         'from_time': from_time,
@@ -103,8 +178,8 @@ def parse_start_time_from_title(title):
     # Example: "September 18 2025 00:00AM"
     try:
         dt = datetime.strptime(dt_str, "%B %d %Y %I:%M%p")
-        et = pytz.timezone('US/Eastern')
-        dt = et.localize(dt)
+        et = ZoneInfo('US/Eastern')
+        dt = dt.replace(tzinfo=et)
         return int(dt.timestamp())
     except Exception:
         return None
@@ -162,9 +237,7 @@ def get_data():
     all_data = []
     redeemed_orders = []
     try:
-        # Parse FROM_TIME as int
         start_time = int(FROM_TIME)
-        # End time is TO_TIME if defined, else now (UTC)
         now_time = int(TO_TIME) if TO_TIME != "" else int(datetime.now(timezone.utc).timestamp())
         three_hours = 3 * 60 * 60
         while start_time < now_time:
@@ -265,7 +338,7 @@ def fill_excel_analysis_sheet(wb, analysis_data):
         analysis_prices = analysis_data.get('analysis_prices', [])
         if 'Analysis' in wb.sheetnames:
             ws = wb['Analysis']
-            start_row = 10
+            start_row = 11
             ws['B2'] = to_et_time(analysis_data.get('from_time')) if analysis_data.get('from_time') else ''
             ws['B3'] = to_et_time(analysis_data.get('to_time')) if analysis_data.get('to_time') else ''
             ws['B4'] = analysis_data.get('total_orders')
@@ -275,57 +348,106 @@ def fill_excel_analysis_sheet(wb, analysis_data):
             ws['C6'] = analysis_data.get('win_trade_rate')
 
             for i, price_obj in enumerate(analysis_prices):
-                    row = start_row + i
-                    ws.cell(row=row, column=1, value=price_obj['price'])
-                    ws.cell(row=row, column=2, value=price_obj['matched_rounds'])
-                    ws.cell(row=row, column=3, value=price_obj['matched_rate'])
-                    ws.cell(row=row, column=4, value=price_obj['win_rounds'])
-                    ws.cell(row=row, column=5, value=price_obj['win_rate'])
-                    # Time frames: 0-4, 4-8, 8-12
-                    tf = price_obj.get('time_frames', [])
-                    ws.cell(row=row, column=6, value=tf[0]['in_frame_rounds'] if len(tf) > 0 else None)
-                    ws.cell(row=row, column=7, value=tf[1]['in_frame_rounds'] if len(tf) > 1 else None)
-                    ws.cell(row=row, column=8, value=tf[2]['in_frame_rounds'] if len(tf) > 2 else None)
+                row = start_row + i
+                # Fixed columns (1-6)
+                ws.cell(row=row, column=1, value=price_obj['price'])
+                ws.cell(row=row, column=2, value=price_obj['matched_rounds'])
+                ws.cell(row=row, column=3, value=price_obj['win_rounds'])
+                ws.cell(row=row, column=4, value=price_obj['win_rate'])
+                ws.cell(row=row, column=5, value=price_obj['ev_value'])
+                
+                # Dynamic columns (7+) based on ANALYSIS_COLUMNS configuration
+                tf = price_obj.get('time_frames', [])
+                win_tf = price_obj.get('win_time_frames', [])
+                
+                for col_idx, col_config in enumerate(ANALYSIS_COLUMNS):
+                    column_num = 6 + col_idx  # Start from column 6
+                    value = None
+                    
+                    if col_config['type'] == 'time_frame':
+                        frame_idx = col_config['frame_index']
+                        if frame_idx < len(tf):
+                            value = tf[frame_idx].get(col_config['property'])
+                    elif col_config['type'] == 'win_time_frame':
+                        frame_idx = col_config['frame_index']
+                        if frame_idx < len(win_tf):
+                            value = win_tf[frame_idx].get(col_config['property'])
+                    
+                    ws.cell(row=row, column=column_num, value=value)
     except Exception as e:
         print(f"Warning: Could not fill analysis summary section: {e}")
 
+def _build_report_filename(from_ts: int, to_ts: int) -> str:
+    """Return filename like dd.MM.yyyy-dd.MM.yyyy.xlsx using GMT+7.
+    to_ts treated as exclusive end; subtract 1 second for inclusive date.
+    """
+    from_date = to_gmt7_date(int(from_ts))
+    to_inclusive = int(to_ts) - 1 if to_ts else int(time.time())
+    to_date = to_gmt7_date(to_inclusive)
+    return f"{from_date}-{to_date}.xlsx"
+
+
 def fill_excel(data):
     wb = openpyxl.load_workbook(TEMPLATE_PATH)
-    # Fill analysis summary section
-    analysis_data = get_analysis_data(data, FROM_TIME, TO_TIME if TO_TIME else int(datetime.now(timezone.utc).timestamp()))
+    effective_to = TO_TIME if TO_TIME else int(datetime.now(timezone.utc).timestamp())
+    analysis_data = get_analysis_data(data, FROM_TIME, effective_to)
     fill_excel_analysis_sheet(wb, analysis_data)
     ws = wb['Data']
     start_row = 2  # assuming headers are in row 1
     row = start_row
     for idx, obj in enumerate(data, 1):
-        # obj is a round: {id, title, is_win, orders, start_time}
-        # Write round-level info in the first row for this round
-        ws.cell(row=row, column=1, value=idx)  # index
+        ws.cell(row=row, column=1, value=idx)
         ws.cell(row=row, column=2, value=obj.get('title', ''))
         ws.cell(row=row, column=10, value=obj.get('id', ''))
         ws.cell(row=row, column=11, value=obj.get('slug', ''))
         ws.cell(row=row, column=5, value='WIN' if obj.get('is_win') else 'LOSE')
-        # Set background color: green for WIN, red for LOSE
         cell = ws.cell(row=row, column=5)
         if obj.get('is_win'):
-            cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")  # light green
+            cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
         else:
-            cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # light red
-
-        # Write each order in this round (one per row)
+            cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
         for order in obj.get('orders', []):
-            # Time columns
             ts = order.get('time')
-            ws.cell(row=row, column=3, value=to_et_time(ts).split(' ')[1] + ' ' + to_et_time(ts).split(' ')[2] if ts else '')
+            ws.cell(row=row, column=3, value=extract_time_part(ts))
             ws.cell(row=row, column=4, value=order.get('price'))
             ws.cell(row=row, column=6, value=order.get('time_to_matched'))
             ws.cell(row=row, column=12, value=ts)
             row += 1
-    wb.save(OUTPUT_PATH)
-    print(f"Filled data saved to {OUTPUT_PATH}")
+    filename = _build_report_filename(FROM_TIME, effective_to)
+    output_path = os.path.join(os.path.dirname(__file__), filename)
+    wb.save(output_path)
+    # Write metadata for other scripts
+    meta = {
+        'path': output_path,
+        'filename': filename,
+        'from_time': FROM_TIME,
+        'to_time': effective_to
+    }
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'last_report.json'), 'w', encoding='utf-8') as f:
+            json.dump(meta, f, indent=2)
+    except Exception as e:
+        print(f"Warning: could not write metadata file: {e}")
+    print(f"Filled data saved to {output_path}")
+    return output_path
 
-if __name__ == "__main__":
+def main():
+    if not POLYMARKET_ADDRESS:
+        print("POLYMARKET_PROXY_ADDRESS not set in .env; cannot fetch data. Exiting.")
+        exit(1)
+
+    from_dt = to_gmt7_datetime(int(FROM_TIME))
+    to_dt = to_gmt7_datetime(int(TO_TIME))
+    print(f"Data range: {from_dt} to {to_dt} [GMT+7]")
+    
+    # Fetch and process data
     data = get_data()
     grouped_data = group_rounds(data)
     print(f"Total unique rounds: {len(grouped_data)}")
-    fill_excel(grouped_data)
+    
+    # Generate Excel report
+    generated_path = fill_excel(grouped_data)
+    print(f"Report generated: {generated_path}")
+    
+if __name__ == "__main__":
+    main()   
